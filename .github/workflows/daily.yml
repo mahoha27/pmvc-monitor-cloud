@@ -1,0 +1,54 @@
+name: PMVC Daily Digest
+
+on:
+  schedule:
+    # 06:00 UTC = 09:00 Europe/Kiev (год-круг, EET=+2 / EEST=+3 → расхождение 1ч в зимнее время)
+    # Украина с 2024 не переключается на летнее/зимнее → постоянно UTC+2 → 07:00 UTC = 09:00 Kyiv
+    # ИСПОЛЬЗУЕМ 07:00 UTC чтобы попасть в 09:00 круглый год.
+    - cron: "0 7 * * *"
+  workflow_dispatch:  # ручной trigger через GitHub UI
+
+permissions:
+  contents: write  # нужно чтобы коммитить state.json обратно
+
+concurrency:
+  group: pmvc-daily
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily digest
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          IPO_NEWS_CHAT_ID: ${{ secrets.IPO_NEWS_CHAT_ID }}
+          TZ: Europe/Kiev
+        run: python monitor.py daily
+
+      - name: Commit updated state
+        run: |
+          git config user.name "pmvc-bot"
+          git config user.email "actions@github.com"
+          if [[ -n "$(git status --porcelain state.json 2>/dev/null)" ]]; then
+            git add state.json
+            git commit -m "state: daily run $(date -u +%Y-%m-%d_%H:%M)"
+            git push
+          else
+            echo "No state changes to commit"
+          fi

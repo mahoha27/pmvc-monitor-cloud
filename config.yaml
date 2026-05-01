@@ -1,0 +1,401 @@
+sectors:
+  nuclear:
+    label: Nuclear / SMR / Fusion
+    keywords:
+    - nuclear
+    - SMR
+    - small modular reactor
+    - fusion
+    - uranium
+    - HALEU
+    - molten salt
+    - reactor
+    - NRC
+    - fission
+    - plutonium
+    - thorium
+    sic_codes:
+    - '4911'
+    - '1094'
+  defense:
+    label: Defense Tech / Autonomous
+    keywords:
+    - defense
+    - counter-UAS
+    - drone
+    - UAV
+    - unmanned aerial
+    - anduril
+    - missile
+    - hypersonic
+    - DoD contract
+    - Pentagon
+    - military
+    - autonomous
+    - swarm
+    - tactical
+    - hypersonics
+    sic_codes:
+    - '3812'
+    - '3728'
+    - '3669'
+  critical_minerals:
+    label: Critical Minerals / Mining
+    keywords:
+    - tungsten
+    - lithium
+    - rare earth
+    - uranium
+    - cobalt
+    - nickel
+    - manganese
+    - critical mineral
+    - DPA Title III
+    - Defense Production Act
+    - REE
+    - vanadium
+    - molybdenum
+    - antimony
+    - gallium
+    - germanium
+    sic_codes:
+    - '1040'
+    - '1041'
+    - '1090'
+    - '1094'
+    - '1400'
+  space:
+    label: Space / Satellites / Orbital
+    keywords:
+    - satellite
+    - space station
+    - spacecraft
+    - orbital
+    - low Earth orbit
+    - LEO
+    - launch
+    - rocket
+    - propulsion
+    - in-space
+    - ground station
+    sic_codes:
+    - '3760'
+    - '3812'
+  quantum:
+    label: Quantum Computing
+    keywords:
+    - quantum computing
+    - qubit
+    - quantum supremacy
+    - quantum sensor
+    - photonic
+    - trapped ion
+    - superconducting
+    sic_codes: []
+  robotics:
+    label: Robotics / Humanoid
+    keywords:
+    - robot
+    - robotic
+    - humanoid
+    - autonomous mobile
+    - industrial automation
+    - actuator
+    - manipulator
+    - robotic arm
+    sic_codes:
+    - '3559'
+    - '3669'
+  ai_infra:
+    label: AI Infrastructure
+    keywords:
+    - data center
+    - AI chip
+    - AI accelerator
+    - GPU
+    - neural
+    - machine learning
+    - inference
+    - training cluster
+    - compute infrastructure
+    - networking
+    - ASIC
+    sic_codes:
+    - '3674'
+    - '7372'
+  bci:
+    label: BCI / Neurotech
+    keywords:
+    - brain-computer
+    - BCI
+    - neurotech
+    - neural implant
+    - deep brain
+    - electrode array
+    - neuralink
+    - synchron
+    - precision neuroscience
+    sic_codes:
+    - '3845'
+mental_health:
+  label: Mental Health / Psychedelics / Wellness
+  keywords:
+  - mental health
+  - psychedelic
+  - psilocybin
+  - MDMA therapy
+  - ketamine
+  - depression
+  - anxiety
+  - schizophrenia
+  - bipolar
+  - ADHD
+  - PTSD
+  - addiction
+  - meditation
+  - mindfulness
+  - BetterHelp
+  - Talkspace
+  - Headspace
+  - Calm app
+  - Akili
+  - Compass Pathways
+  - MindMed
+  - atai
+  - Cybin
+  - Numinus
+  - Pasithea
+  - psychiatry
+  - behavioral health
+  - mental wellness
+avoided_keywords:
+- wind power
+- wind turbine
+- solar panel
+- photovoltaic
+- EV charging station
+- charging network
+smart_money:
+  investors:
+  - Peter Thiel
+  - Founders Fund
+  - Vinod Khosla
+  - Khosla Ventures
+  - Marc Andreessen
+  - Andreessen Horowitz
+  - a16z
+  - Reid Hoffman
+  - Greylock
+  - Joe Lonsdale
+  - 8VC
+  - Josh Wolfe
+  - Lux Capital
+  - Coatue
+  - Brian Singerman
+  - Trae Stephens
+  - General Catalyst
+  - Hemant Taneja
+  - Brian Paes-Braga
+  - Eclipse Ventures
+  operators:
+  - Elon Musk
+  - Sam Altman
+  - Jensen Huang
+  - Palmer Luckey
+  - Jeff Bezos
+  - Patrick Collison
+  - David Sacks
+  - Chris Wright
+  - Emil Michael
+  - Stephen Feinberg
+  - Dan Driscoll
+  - Shyam Sankar
+  - Pete Hegseth
+  - Robert Gates
+  - 1789 Capital
+  - Donald Trump Jr
+  - Office of Strategic Capital
+  - OSC loan
+  - One Big Beautiful Bill
+  - Defense Production Act
+  - DPA Title III
+  - wartime speed
+  - Department of War
+  - Vulcan Elements
+  - Hadrian
+  - Project Maven
+  - American Dynamism
+  - redomesticate
+  - Last Supper
+  - Joseph Lucosky
+  - Lucosky Brookman
+opinion_leaders:
+  twitter_handles:
+  - handle: justusparmar
+    name: Justus Parmar (Fortuna Investments — PMVC)
+  - handle: ericjackson
+    name: Eric Jackson (EMJ Capital — micro-cap activist)
+  - handle: UraniumInsider
+    name: Justin Huhn (uranium specialist)
+  - handle: DoombergT
+    name: Doomberg (energy / commodities macro)
+  - handle: howardlindzon
+    name: Howard Lindzon (Stocktwits founder)
+  - handle: altcap
+    name: Brad Gerstner (Altimeter Capital)
+  - handle: chamath
+    name: Chamath Palihapitiya (SPAC king)
+  youtube_channels:
+  - channel_id: UCESLZhusAkFfsNsApnjF_Cg
+    name: All-In Podcast (Chamath, Sacks, Friedberg, Calacanis)
+  - channel_id: UC-yRDvpR99LUc5l7i7jLzew
+    name: Bg2 Pod (Brad Gerstner + Bill Gurley)
+  - channel_id: UCyFqFYfTW2VoIQKylJ04Rtw
+    name: Acquired (Ben Gilbert + David Rosenthal)
+  - channel_id: UCGXWKlq1Oxr3ddEtmKhAkPg
+    name: Real Vision Finance
+  - channel_id: UCc0h6rwJD4vr_Rtdasuyn-w
+    name: Crux Investor (small-cap mining IPO interviews)
+  - channel_id: UCf0PBRjhf0rF8fWBIxTuoWA
+    name: 20VC (Harry Stebbings)
+  - channel_id: UCGq-a57w-aPwyi3pW7XLiHw
+    name: The Diary of a CEO (Steven Bartlett)
+  - channel_id: UCbzQ_YWf9RsBP9ATbmv5kxQ
+    name: Capital Allocators (Ted Seides)
+  - channel_id: UCVRZ75ihzAZFihD1dS8qvwg
+    name: Chamath Palihapitiya channel
+ipo_candidates:
+- Anduril
+- SpaceX
+- Quantinuum
+- Saronic
+- Apptronik
+- Shield AI
+- Hermeus
+- Skydio
+- Helion
+- Precision Neuroscience
+- K2 Space
+- Starcloud
+- Northwood Space
+- Starfish
+- Figure
+- Synchron
+- Fervo Energy
+- X-Energy
+- Aalo
+- Antares
+- Atomic Alchemy
+- Deep Fission
+- Last Energy
+- Radiant
+- Terrestrial Energy
+- Valar
+- Vulcan Elements
+- Hadrian
+- USA Rare Earth
+- Michigan Potash
+- Mach Industries
+rss_sources:
+- name: TechCrunch
+  url: https://techcrunch.com/feed/
+- name: TC Venture
+  url: https://techcrunch.com/category/venture/feed/
+- name: TC Startups
+  url: https://techcrunch.com/category/startups/feed/
+- name: SiliconANGLE
+  url: https://siliconangle.com/feed/
+- name: SpaceNews
+  url: https://spacenews.com/feed/
+- name: Defense News
+  url: https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml
+- name: Breaking Defense
+  url: https://breakingdefense.com/feed/
+- name: Crunchbase News
+  url: https://news.crunchbase.com/feed/
+- name: Mining.com
+  url: https://www.mining.com/feed/
+- name: World Nuclear News
+  url: https://www.world-nuclear-news.org/rss
+- name: NYT Business
+  url: https://rss.nytimes.com/services/xml/rss/nyt/Business.xml
+- name: NYT Tech
+  url: https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml
+edgar_forms:
+- 424B4
+- 424B5
+- 424B3
+- S-1
+- S-1/A
+- F-1
+- F-1/A
+- 8-A12B
+- RW
+- 8-K
+telegram:
+  enabled: true
+  # cloud: env_file omitted → BOT_TOKEN + IPO_NEWS_CHAT_ID берутся из os.environ (GitHub Secrets)
+  daily_max_items: 12
+obsidian:
+  # cloud: пустые пути → Obsidian writes пропускаются (graceful no-op)
+  daily_dir: ""
+  weekly_dir: ""
+llm:
+  # cloud: ollama недоступен → enabled=false → LLM шаг пропускается. HTML digest всё равно полный.
+  enabled: false
+nitter_base: https://nitter.net
+google_news_smart_money:
+- name: Elon Musk
+  url: https://news.google.com/rss/search?q=%22Elon%20Musk%22&hl=en-US&gl=US&ceid=US:en
+- name: Sam Altman
+  url: https://news.google.com/rss/search?q=%22Sam%20Altman%22&hl=en-US&gl=US&ceid=US:en
+- name: Jensen Huang
+  url: https://news.google.com/rss/search?q=%22Jensen%20Huang%22&hl=en-US&gl=US&ceid=US:en
+- name: Palmer Luckey
+  url: https://news.google.com/rss/search?q=%22Palmer%20Luckey%22&hl=en-US&gl=US&ceid=US:en
+- name: Jeff Bezos
+  url: https://news.google.com/rss/search?q=%22Jeff%20Bezos%22&hl=en-US&gl=US&ceid=US:en
+- name: Patrick Collison
+  url: https://news.google.com/rss/search?q=%22Patrick%20Collison%22&hl=en-US&gl=US&ceid=US:en
+- name: David Sacks
+  url: https://news.google.com/rss/search?q=%22David%20Sacks%22&hl=en-US&gl=US&ceid=US:en
+- name: Chris Wright
+  url: https://news.google.com/rss/search?q=%22Chris%20Wright%22&hl=en-US&gl=US&ceid=US:en
+- name: Emil Michael
+  url: https://news.google.com/rss/search?q=%22Emil%20Michael%22&hl=en-US&gl=US&ceid=US:en
+- name: Stephen Feinberg
+  url: https://news.google.com/rss/search?q=%22Stephen%20Feinberg%22&hl=en-US&gl=US&ceid=US:en
+- name: Dan Driscoll
+  url: https://news.google.com/rss/search?q=%22Dan%20Driscoll%22&hl=en-US&gl=US&ceid=US:en
+- name: Shyam Sankar
+  url: https://news.google.com/rss/search?q=%22Shyam%20Sankar%22&hl=en-US&gl=US&ceid=US:en
+- name: Pete Hegseth
+  url: https://news.google.com/rss/search?q=%22Pete%20Hegseth%22&hl=en-US&gl=US&ceid=US:en
+- name: Robert Gates
+  url: https://news.google.com/rss/search?q=%22Robert%20Gates%22&hl=en-US&gl=US&ceid=US:en
+- name: Donald Trump Jr
+  url: https://news.google.com/rss/search?q=%22Donald%20Trump%20Jr%22&hl=en-US&gl=US&ceid=US:en
+- name: Peter Thiel
+  url: https://news.google.com/rss/search?q=%22Peter%20Thiel%22&hl=en-US&gl=US&ceid=US:en
+- name: Vinod Khosla
+  url: https://news.google.com/rss/search?q=%22Vinod%20Khosla%22&hl=en-US&gl=US&ceid=US:en
+- name: Marc Andreessen
+  url: https://news.google.com/rss/search?q=%22Marc%20Andreessen%22&hl=en-US&gl=US&ceid=US:en
+- name: Reid Hoffman
+  url: https://news.google.com/rss/search?q=%22Reid%20Hoffman%22&hl=en-US&gl=US&ceid=US:en
+- name: Joe Lonsdale
+  url: https://news.google.com/rss/search?q=%22Joe%20Lonsdale%22&hl=en-US&gl=US&ceid=US:en
+- name: Josh Wolfe
+  url: https://news.google.com/rss/search?q=%22Josh%20Wolfe%22&hl=en-US&gl=US&ceid=US:en
+- name: Brian Singerman
+  url: https://news.google.com/rss/search?q=%22Brian%20Singerman%22&hl=en-US&gl=US&ceid=US:en
+- name: Trae Stephens
+  url: https://news.google.com/rss/search?q=%22Trae%20Stephens%22&hl=en-US&gl=US&ceid=US:en
+- name: Hemant Taneja
+  url: https://news.google.com/rss/search?q=%22Hemant%20Taneja%22&hl=en-US&gl=US&ceid=US:en
+- name: Brian Paes-Braga
+  url: https://news.google.com/rss/search?q=%22Brian%20Paes-Braga%22&hl=en-US&gl=US&ceid=US:en
+- name: Joseph Lucosky
+  url: https://news.google.com/rss/search?q=%22Joseph%20Lucosky%22&hl=en-US&gl=US&ceid=US:en
+- name: Lucosky Brookman
+  url: https://news.google.com/rss/search?q=%22Lucosky%20Brookman%22&hl=en-US&gl=US&ceid=US:en
