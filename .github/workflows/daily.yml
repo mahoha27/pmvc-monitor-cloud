@@ -2,11 +2,16 @@ name: PMVC Daily Digest
 
 on:
   schedule:
-    # 06:00 UTC = 09:00 Europe/Kiev (год-круг, EET=+2 / EEST=+3 → расхождение 1ч в зимнее время)
     # Украина с 2024 не переключается на летнее/зимнее → постоянно UTC+2 → 07:00 UTC = 09:00 Kyiv
-    # ИСПОЛЬЗУЕМ 07:00 UTC чтобы попасть в 09:00 круглый год.
     - cron: "0 7 * * *"
-  workflow_dispatch:  # ручной trigger через GitHub UI
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "DRY_RUN: collect data, build digest, but DO NOT send to Telegram"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
 
 permissions:
   contents: write  # нужно чтобы коммитить state.json обратно
@@ -39,6 +44,8 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           IPO_NEWS_CHAT_ID: ${{ secrets.IPO_NEWS_CHAT_ID }}
           TZ: Europe/Kiev
+          # Manual runs default to dry_run=true (no Telegram send). Scheduled runs always send.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '0' }}
         run: python monitor.py daily
 
       - name: Commit updated state

@@ -660,9 +660,15 @@ def run_daily(test_mode=False):
 
     # 7. TG digest (new structured format)
     if not test_mode and config["telegram"]["enabled"]:
+        import os as _os
         digest = build_telegram_digest(today, edgar_relevant, news_relevant, tweets_relevant, youtube_relevant, market_activity, config, state=state, smart_money_news=smart_money_news)
-        env_file_cfg = config["telegram"].get("env_file")  # None in cloud mode → env vars used
-        sent_ok = send_telegram(digest, env_file_cfg)
+        if _os.environ.get("DRY_RUN") == "1":
+            print(f"[daily] DRY_RUN=1 — digest built ({len(digest)} chars) but NOT sent. First 300 chars:", flush=True)
+            print(digest[:300], flush=True)
+            sent_ok = "skipped"
+        else:
+            env_file_cfg = config["telegram"].get("env_file")  # None in cloud mode → env vars used
+            sent_ok = send_telegram(digest, env_file_cfg)
         print(f"[daily] TG sent (len={len(digest)}, ok={sent_ok})", flush=True)
 
     state["last_run_date"] = today.isoformat()
