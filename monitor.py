@@ -478,11 +478,27 @@ def send_telegram(text, env_file, parse_mode="HTML", document=None, caption=None
 
 # ---------- Daily ----------
 def run_daily(test_mode=False):
+    import os as _os
     config = load_config()
     state = load_state()
 
     today = date.today()
     yesterday = today - timedelta(days=1)
+
+    # IDEMPOTENCY: skip TG send if today's digest already delivered.
+    # Multiple cron triggers per morning fire to compensate for GitHub Actions
+    # scheduled-workflow lag (can be 20min - 6h on free tier). First successful
+    # send marks state["last_daily_sent_date"] = today; subsequent triggers see
+    # this and exit early before any data fetching, saving compute and avoiding
+    # duplicate sends.
+    # Override: DRY_RUN=1 still runs full pipeline (testing). FORCE_RESEND=1 bypasses idempotency.
+    if (not test_mode
+            and _os.environ.get("DRY_RUN") != "1"
+            and _os.environ.get("FORCE_RESEND") != "1"
+            and state.get("last_daily_sent_date") == today.isoformat()):
+        print(f"[daily] IDEMPOTENT SKIP — already sent today ({today.isoformat()})", flush=True)
+        return
+
     since = state.get("last_run_date") or yesterday.isoformat()
     until = today.isoformat()
 
@@ -670,6 +686,10 @@ def run_daily(test_mode=False):
             env_file_cfg = config["telegram"].get("env_file")  # None in cloud mode → env vars used
             sent_ok = send_telegram(digest, env_file_cfg)
         print(f"[daily] TG sent (len={len(digest)}, ok={sent_ok})", flush=True)
+        # Mark idempotency only on REAL successful send (not DRY_RUN, not failed)
+        if sent_ok is True:
+            state["last_daily_sent_date"] = today.isoformat()
+            state["last_daily_sent_at"] = datetime.now().isoformat()
 
     state["last_run_date"] = today.isoformat()
     state["last_run"] = datetime.now().isoformat()

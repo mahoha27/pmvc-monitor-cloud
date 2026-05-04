@@ -2,8 +2,18 @@ name: PMVC Daily Digest
 
 on:
   schedule:
-    # Украина с 2024 не переключается на летнее/зимнее → постоянно UTC+2 → 07:00 UTC = 09:00 Kyiv
-    - cron: "0 7 * * *"
+    # Украина в EEST (UTC+3) с конца марта по конец октября; EET (UTC+2) зимой.
+    # Цель: доставить digest до 09:00 Kyiv. С учётом GitHub Actions cron lag
+    # (20 мин - 6 ч на free tier, иногда skip полностью) — 6 попыток с 06:00 до 08:30 UTC
+    # = 09:00-11:30 Kyiv (летом) / 08:00-10:30 (зимой).
+    # Idempotency в monitor.py: первый успешный send отмечает state.last_daily_sent_date,
+    # последующие триггеры выходят сразу без работы. Безопасно палить хоть 100 раз.
+    - cron: "0 6 * * *"   # 06:00 UTC ≈ 09:00 Kyiv (target time)
+    - cron: "30 6 * * *"  # 09:30 Kyiv  (catchup #1)
+    - cron: "0 7 * * *"   # 10:00 Kyiv  (catchup #2)
+    - cron: "30 7 * * *"  # 10:30 Kyiv  (catchup #3)
+    - cron: "0 8 * * *"   # 11:00 Kyiv  (catchup #4)
+    - cron: "30 8 * * *"  # 11:30 Kyiv  (last chance)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -12,10 +22,17 @@ on:
         default: "true"
         type: choice
         options: ["true", "false"]
+      force_resend:
+        description: "FORCE_RESEND: bypass idempotency check (use only to re-send today's digest)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
 
 permissions:
-  contents: write  # нужно чтобы коммитить state.json обратно
+  contents: write  # для commit state.json обратно
 
+# Один job в каждый момент. Если 06:00 ещё бежит когда стартует 06:30 — 06:30 ждёт.
 concurrency:
   group: pmvc-daily
   cancel-in-progress: false
@@ -44,8 +61,10 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           IPO_NEWS_CHAT_ID: ${{ secrets.IPO_NEWS_CHAT_ID }}
           TZ: Europe/Kiev
-          # Manual runs default to dry_run=true (no Telegram send). Scheduled runs always send.
+          # Scheduled runs: real send. Manual runs: default DRY_RUN=true (safe).
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '0' }}
+          # FORCE_RESEND only via manual dispatch
+          FORCE_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend == 'true' && '1' || '0' }}
         run: python monitor.py daily
 
       - name: Commit updated state
@@ -55,7 +74,9 @@ jobs:
           if [[ -n "$(git status --porcelain state.json 2>/dev/null)" ]]; then
             git add state.json
             git commit -m "state: daily run $(date -u +%Y-%m-%d_%H:%M)"
-            git push
+            # Pull --rebase в случае параллельных runs / external commits
+            git pull --rebase --autostash origin main || true
+            git push || (sleep 5 && git pull --rebase origin main && git push)
           else
             echo "No state changes to commit"
           fi
