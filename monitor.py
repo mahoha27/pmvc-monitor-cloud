@@ -216,6 +216,26 @@ GOV_PATTERNS = ["pentagon", "department of defense", "department of war",
                 "dpa", "osc", "darpa", "dod", "dhs"]
 
 
+_WORD_BOUNDARY_CACHE = {}
+
+def _word_match(keyword, text_lower):
+    """Word-boundary keyword matcher.
+
+    Replaces naive `kw in text` substring matching, which caused false positives:
+    short acronyms (REE, LEO, GPU) and short names (Trump, Musk) matched
+    inside unrelated words (free→ree, leopard→leo, trumpcard→trump).
+
+    Uses \\b word boundaries — matches whole words/multi-word phrases only.
+    Cached compiled regex per keyword for speed across thousands of items.
+    """
+    kw_lower = keyword.lower()
+    if kw_lower not in _WORD_BOUNDARY_CACHE:
+        _WORD_BOUNDARY_CACHE[kw_lower] = re.compile(
+            rf'\b{re.escape(kw_lower)}\b', re.IGNORECASE
+        )
+    return bool(_WORD_BOUNDARY_CACHE[kw_lower].search(text_lower))
+
+
 def classify(text, config):
     text_lower = text.lower()
     matches = {
@@ -225,11 +245,11 @@ def classify(text, config):
         "score": 0, "reasons": [],
     }
 
-    # Sector match (track which keyword triggered each)
+    # Sector match (word-boundary, no substring false positives)
     for sector_id, sector_def in config["sectors"].items():
         for kw in sector_def["keywords"]:
             kw_lower = kw.lower()
-            if kw_lower in text_lower:
+            if _word_match(kw_lower, text_lower):
                 matches["sectors"].append(sector_id)
                 if kw_lower in STRONG_KEYWORDS:
                     matches["strong_kw"].append(kw_lower)
@@ -240,31 +260,31 @@ def classify(text, config):
                 break
 
     for kw in config.get("avoided_keywords", []):
-        if kw.lower() in text_lower:
+        if _word_match(kw, text_lower):
             matches["avoided"].append(kw)
 
     for name in config["smart_money"]["investors"] + config["smart_money"]["operators"]:
-        if name.lower() in text_lower:
+        if _word_match(name, text_lower):
             matches["smart_money"].append(name)
 
     for cand in config["ipo_candidates"]:
-        if cand.lower() in text_lower:
+        if _word_match(cand, text_lower):
             matches["ipo_candidates"].append(cand)
 
     for kw in config.get("mental_health", {}).get("keywords", []):
-        if kw.lower() in text_lower:
+        if _word_match(kw, text_lower):
             matches["mental_health"] = True
             break
 
-    # Funding signal (raised $XXM, Series A, IPO, etc.)
+    # Funding signal (raised $XXM, Series A, IPO, etc.) — already regex
     for pat in FUNDING_PATTERNS:
         if re.search(pat, text_lower):
             matches["funding_signal"] = True
             break
 
-    # Government / Pentagon signal
+    # Government / Pentagon signal — also word-boundary
     for kw in GOV_PATTERNS:
-        if kw in text_lower:
+        if _word_match(kw, text_lower):
             matches["gov_signal"] = True
             break
 
