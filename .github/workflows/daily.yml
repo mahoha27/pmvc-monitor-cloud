@@ -2,18 +2,15 @@ name: PMVC Daily Digest
 
 on:
   schedule:
-    # Украина в EEST (UTC+3) с конца марта по конец октября; EET (UTC+2) зимой.
-    # Цель: доставить digest до 09:00 Kyiv. С учётом GitHub Actions cron lag
-    # (20 мин - 6 ч на free tier, иногда skip полностью) — 6 попыток с 06:00 до 08:30 UTC
-    # = 09:00-11:30 Kyiv (летом) / 08:00-10:30 (зимой).
-    # Idempotency в monitor.py: первый успешный send отмечает state.last_daily_sent_date,
-    # последующие триггеры выходят сразу без работы. Безопасно палить хоть 100 раз.
-    - cron: "0 6 * * *"   # 06:00 UTC ≈ 09:00 Kyiv (target time)
-    - cron: "30 6 * * *"  # 09:30 Kyiv  (catchup #1)
-    - cron: "0 7 * * *"   # 10:00 Kyiv  (catchup #2)
-    - cron: "30 7 * * *"  # 10:30 Kyiv  (catchup #3)
-    - cron: "0 8 * * *"   # 11:00 Kyiv  (catchup #4)
-    - cron: "30 8 * * *"  # 11:30 Kyiv  (last chance)
+    # СТРАТЕГИЯ: насыщение cron schedule + idempotency.
+    # GitHub Actions free-tier cron — НЕНАДЁЖЕН: scheduled runs могут быть
+    # отложены (20 мин - 6 ч) или СКИПНУТЫ полностью (как May 4, May 5).
+    # Документированный workaround: high-frequency cron получает приоритет
+    # в GH scheduler. Поэтому каждые 10 мин 06:00-11:50 UTC = 36 попыток.
+    # Idempotency (state.last_daily_sent_date) гарантирует ровно ОДИН send/день:
+    # первый успешный run отмечает дату, остальные 35 видят и выходят за <1 сек.
+    # Public repo → unlimited Actions minutes → стоимость 0.
+    - cron: "*/10 6-11 * * *"  # каждые 10 мин 06:00-11:50 UTC = 09:00-14:50 Kyiv (EEST)
   workflow_dispatch:
     inputs:
       dry_run:
