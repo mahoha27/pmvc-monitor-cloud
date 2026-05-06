@@ -646,6 +646,7 @@ def run_daily(test_mode=False):
                 it["llm_summary"] = s
 
     # 5b. Aggregate week-level IPO activity (priced/upcoming/pipeline/withdrawn)
+    # Default since_date in aggregate = today-1 (only yesterday/today RWs)
     market_activity = aggregate_market_activity(edgar_week, config)
 
     # 5c. Detect listing model (classic / direct / uplist) for priced + imminent
@@ -837,13 +838,49 @@ def telegraph_publish(access_token, title, html_text):
 
 
 # ---------- Market activity aggregation ----------
-def aggregate_market_activity(edgar_week, config):
+_company_listed_cache = {}
+
+def is_company_publicly_listed(cik):
+    """Returns True if company is already trading on a US exchange.
+
+    Used to filter the 'Withdrawn IPOs' bucket — RW forms can be filed for
+    follow-on offerings (S-3 shelf, S-4 merger, S-8 employee plans, F-3 resale,
+    10-12G class registration) by ALREADY-PUBLIC companies. Those are NOT
+    'pulled IPOs'. Real pulled IPO = pre-IPO company (no exchange) withdraws
+    initial S-1/F-1/DRS registration.
+
+    Per SEC submissions.json: pre-IPO companies have empty/None exchanges array;
+    public companies have at least one non-None exchange (e.g. ['Nasdaq']).
+
+    Cached per run to avoid hammering SEC API. Returns None on fetch failure.
+    """
+    cik_padded = str(cik).zfill(10)
+    if cik_padded in _company_listed_cache:
+        return _company_listed_cache[cik_padded]
+    try:
+        url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
+        data = json.loads(http_get(url))
+        exchanges = data.get("exchanges") or []
+        # Has at least one non-None exchange entry → trading publicly
+        is_public = any(e for e in exchanges if e)
+        _company_listed_cache[cik_padded] = is_public
+        return is_public
+    except Exception as e:
+        print(f"  submissions fetch failed CIK {cik_padded}: {e}", file=sys.stderr)
+        _company_listed_cache[cik_padded] = None
+        return None
+
+
+def aggregate_market_activity(edgar_week, config, since_date=None):
     """
     Group filings by CIK to derive IPO lifecycle stage:
     - PRICED:    has 424B4 in window → IPO closed
     - IMMINENT:  has 8-A12B but no 424B4 → about to price (1-3 days)
     - PIPELINE:  has S-1 / F-1 / S-1/A / F-1/A → in registration
-    - WITHDRAWN: has RW form → отозвали / отказались
+    - WITHDRAWN: has RW form FOR an initial offering (S-1/F-1/DRS),
+                 AND company is NOT already publicly listed,
+                 AND RW filed since `since_date` (default = last 2 days).
+
     Returns dict: {priced: [...], imminent: [...], pipeline: [...], withdrawn: [...]}
     """
     by_cik = defaultdict(list)
@@ -851,6 +888,15 @@ def aggregate_market_activity(edgar_week, config):
         if not f["ciks"]:
             continue
         by_cik[f["ciks"][0]].append(f)
+
+    # Default cutoff: show only RWs filed YESTERDAY or TODAY.
+    # Old behavior used 7-day window → same company shown 5+ days in row (user complaint
+    # 2026-05-06: BMNR/CDIX/WTO/CCIS/APEX repeated 5 days). Daily digest should show
+    # only WHAT'S NEW since previous digest.
+    if since_date is None:
+        cutoff_date = (date.today() - timedelta(days=1)).isoformat()
+    else:
+        cutoff_date = since_date
 
     priced = []
     imminent = []
@@ -860,15 +906,30 @@ def aggregate_market_activity(edgar_week, config):
     PRICED_FORMS = {"424B4"}  # 424B4 = final IPO prospectus (priced); 424B3/B5 = follow-on supplements (excluded)
     PRELISTING_FORMS = {"8-A12B"}
     PIPELINE_FORMS = {"S-1", "F-1"}  # S-1/A and F-1/A are amendments — only count first-time S-1/F-1
+    INITIAL_REG_FORMS = {"S-1", "F-1", "S-1/A", "F-1/A", "DRS", "DRS/A"}  # forms that signal an INITIAL IPO registration
 
     for cik, filings in by_cik.items():
         forms_filed = {f["form"] for f in filings}
         # latest filing for company info
         latest = max(filings, key=lambda x: x["date"])
 
-        # WITHDRAWN — top priority
+        # WITHDRAWN — strict filter: real pulled IPO only.
+        # Companies file initial S-1/F-1 months before RW, so checking forms in 7-day
+        # window doesn't help. Instead: query SEC submissions.json — if company is
+        # already trading on a US exchange → RW is for follow-on/shelf/employee-plan,
+        # NOT a pulled IPO. Pre-IPO companies (no exchange listing) → real pulled IPO.
+        # User feedback 2026-05-06: this drops BMNR/CDIX/WTO/RLYB/AMST/MountLogan/etc
+        # (already-public companies) and keeps APEX/EUPEC/CCIS (pre-IPO companies).
         if "RW" in forms_filed:
-            rw_filing = next(f for f in filings if f["form"] == "RW")
+            rw_filing = max((f for f in filings if f["form"] == "RW"), key=lambda x: x["date"])
+            # Filter 1: RW must be RECENT — avoid showing same company 5+ days in row
+            if rw_filing["date"] < cutoff_date:
+                continue
+            # Filter 2: company must NOT be already publicly listed
+            # (public co with RW = follow-on / shelf withdrawal, not pulled IPO)
+            already_listed = is_company_publicly_listed(cik)
+            if already_listed is True:  # explicitly True; None (fetch fail) keeps the entry as-is
+                continue
             withdrawn.append({
                 **latest,
                 "withdraw_date": rw_filing["date"],
