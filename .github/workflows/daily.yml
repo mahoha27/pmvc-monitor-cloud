@@ -25,6 +25,12 @@ on:
         default: "false"
         type: choice
         options: ["true", "false"]
+      test_to_owner:
+        description: "TEST: send to OWNER_TG_ID (private DM) instead of IPO-NEWS — for format approval"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
 
 permissions:
   contents: write  # для commit state.json обратно
@@ -60,8 +66,10 @@ jobs:
           TZ: Europe/Kiev
           # Scheduled runs: real send. Manual runs: default DRY_RUN=true (safe).
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '0' }}
-          # FORCE_RESEND only via manual dispatch
           FORCE_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend == 'true' && '1' || '0' }}
+          # TEST mode → reroute send to OWNER's private DM. test_to_owner=true requires
+          # OWNER_TG_ID secret (user's personal Telegram numeric id).
+          TEST_RECIPIENT_CHAT_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.test_to_owner == 'true' && secrets.OWNER_TG_ID || '' }}
         run: python monitor.py daily
 
       - name: Commit updated state

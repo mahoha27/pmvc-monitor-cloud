@@ -695,20 +695,37 @@ def run_daily(test_mode=False):
     else:
         print("[daily] obsidian write skipped (cloud mode)", flush=True)
 
-    # 7. TG digest (new structured format)
+    # 7. TG digest — NEW SPLIT FORMAT (2 messages: compact + Telegraph link card)
+    # User policy 2026-05-06: split into msg1 (top 7 news + NASDAQ activity) and
+    # msg2 (Telegraph link → top 20 news, sector counts, opinion, smart money).
     if not test_mode and config["telegram"]["enabled"]:
         import os as _os
-        digest = build_telegram_digest(today, edgar_relevant, news_relevant, tweets_relevant, youtube_relevant, market_activity, config, state=state, smart_money_news=smart_money_news)
+        msg1, msg2 = build_telegram_digest_split(
+            today, edgar_relevant, news_relevant, tweets_relevant, youtube_relevant,
+            market_activity, config, state=state, smart_money_news=smart_money_news,
+        )
+        total_len = len(msg1) + len(msg2)
         if _os.environ.get("DRY_RUN") == "1":
-            print(f"[daily] DRY_RUN=1 — digest built ({len(digest)} chars) but NOT sent. First 300 chars:", flush=True)
-            print(digest[:300], flush=True)
+            print(f"[daily] DRY_RUN=1 — split digest built (msg1={len(msg1)}, msg2={len(msg2)}). First 300 of msg1:", flush=True)
+            print(msg1[:300], flush=True)
             sent_ok = "skipped"
         else:
-            env_file_cfg = config["telegram"].get("env_file")  # None in cloud mode → env vars used
-            sent_ok = send_telegram(digest, env_file_cfg)
-        print(f"[daily] TG sent (len={len(digest)}, ok={sent_ok})", flush=True)
-        # Mark idempotency only on REAL successful send (not DRY_RUN, not failed)
-        if sent_ok is True:
+            env_file_cfg = config["telegram"].get("env_file")
+            # TEST_RECIPIENT_CHAT_ID overrides production chat — used to send to user's DM
+            # for format approval before going live to IPO-NEWS supergroup.
+            test_chat = _os.environ.get("TEST_RECIPIENT_CHAT_ID")
+            chat_var_override = None
+            if test_chat:
+                # Inject into env so send_telegram picks it up via override env vars
+                _os.environ["IPO_NEWS_CHAT_ID"] = test_chat
+                print(f"[daily] TEST MODE — sending to chat {test_chat} (not production)", flush=True)
+            ok1 = send_telegram(msg1, env_file_cfg)
+            time.sleep(1)  # let TG rate-limit settle between messages
+            ok2 = send_telegram(msg2, env_file_cfg)
+            sent_ok = bool(ok1 and ok2)
+        print(f"[daily] TG sent split (len={total_len} = {len(msg1)}+{len(msg2)}, ok={sent_ok})", flush=True)
+        # Mark idempotency only on REAL successful send of BOTH messages
+        if sent_ok is True and not _os.environ.get("TEST_RECIPIENT_CHAT_ID"):
             state["last_daily_sent_date"] = today.isoformat()
             state["last_daily_sent_at"] = datetime.now().isoformat()
 
@@ -1327,6 +1344,151 @@ def _build_section_sectors(news, config):
             L.append(f"• {_h(label)}: {cnt}")
         L.append("")
     return L
+
+
+def _build_top20_news_html(news):
+    """Top-20 news in Telegraph-formatted HTML — links + score + reasons."""
+    sorted_news = sorted(news, key=lambda x: -x.get("matches", {}).get("score", 0))
+    items = sorted_news[:20]
+    L = ["<h3>📰 Top 20 News (ranked by relevance)</h3>"]
+    for it in items:
+        score = it.get("matches", {}).get("score", 0)
+        reasons = it.get("matches", {}).get("reasons", [])
+        why = " · ".join(reasons[:3]) if reasons else "—"
+        L.append(
+            f'<p>• <a href="{_h(it["link"])}">{_h(truncate(it["title"], 140))}</a><br>'
+            f'<i>{_h(it["source"])} · score <b>{score}</b> · {_h(why)}</i></p>'
+        )
+    return "\n".join(L)
+
+
+def _build_sectors_html(news, config):
+    """Sector counts in Telegraph HTML."""
+    by_sector = defaultdict(int)
+    for it in news:
+        for s in it["matches"]["sectors"]:
+            by_sector[s] += 1
+    if not by_sector:
+        return ""
+    L = ["<h3>🏷 News count by sector (today)</h3>", "<ul>"]
+    for sid, cnt in sorted(by_sector.items(), key=lambda x: -x[1])[:12]:
+        label = config["sectors"].get(sid, {}).get("label", sid)
+        L.append(f"<li>{_h(label)}: <b>{cnt}</b></li>")
+    L.append("</ul>")
+    return "\n".join(L)
+
+
+def _build_opinion_smart_html(youtube, tweets, news, smart_money_news):
+    """Opinion Leaders + Smart Money in Telegraph HTML — full lists."""
+    L = []
+
+    # YouTube
+    if youtube:
+        L.append("<h3>🎙 Opinion Leaders — YouTube</h3>")
+        for v in youtube[:15]:
+            url = v.get("link", "")
+            L.append(
+                f'<p>• <a href="{_h(url)}"><i>{_h(truncate(v.get("channel",""), 30))}</i>: '
+                f'{_h(truncate(v["title"], 120))}</a></p>'
+            )
+
+    # Tweets — only relevant ones (passed filter)
+    if tweets:
+        L.append("<h3>🐦 Opinion Leaders — X / Tweets</h3>")
+        for t in tweets[:20]:
+            url = t.get("link", "")
+            text = strip_html(t.get("summary", "")) or t["title"]
+            L.append(
+                f'<p>• <a href="{_h(url)}">@{_h(t["author_handle"])}</a>: '
+                f'{_h(truncate(text, 200))}</p>'
+            )
+
+    # Smart-money news (Google News + RSS news mentioning tracked names)
+    sm_news = [it for it in news if it.get("matches", {}).get("smart_money")]
+    smn = smart_money_news or []
+    if sm_news or smn:
+        L.append("<h3>💰 Smart Money — tracked names mentioned</h3>")
+        if smn:
+            from collections import defaultdict as _dd
+            by_person = _dd(list)
+            for it in smn:
+                by_person[it["tracked_person"]].append(it)
+            for person, items in sorted(by_person.items(), key=lambda x: -len(x[1]))[:10]:
+                L.append(f"<h4>{_h(person)} ({len(items)} mentions)</h4>")
+                for it in items[:5]:
+                    url = it.get("link", "")
+                    L.append(
+                        f'<p>• <a href="{_h(url)}">{_h(truncate(it["title"], 140))}</a></p>'
+                    )
+        if sm_news:
+            L.append("<h4>From RSS / news feeds</h4>")
+            for it in sm_news[:15]:
+                names = ", ".join(it["matches"]["smart_money"][:3])
+                url = it.get("link", "")
+                L.append(
+                    f'<p>• <b>{_h(names)}</b> — <a href="{_h(url)}">'
+                    f'{_h(truncate(it["title"], 130))}</a></p>'
+                )
+    return "\n".join(L)
+
+
+def build_telegram_digest_split(today, edgar, news, tweets, youtube, market_activity, config, state=None, smart_money_news=None):
+    """Returns (msg1, msg2) tuple — TWO TG messages.
+
+    USER FORMAT POLICY (2026-05-06):
+      Msg #1 (compact): header + Top-7 News (ranked) + NASDAQ/NYSE Activity full table
+      Msg #2 (link card): Telegraph URL → expanded article with:
+        - Top 20 News (full ranked list with scores/reasons)
+        - Sector counts (was section 6 in old format)
+        - Opinion Leaders (YouTube + X tweets)
+        - Smart Money (Google News + RSS mentions)
+
+    Telegraph article is mandatory — provides the long-form for serious readers.
+    Falls back to single-message format if Telegraph creation fails.
+    """
+    # Build Telegraph article (long-form)
+    telegraph_html = "\n".join([
+        f"<p><i>Generated {today.strftime('%a %b %d, %Y')}.</i></p>",
+        _build_top20_news_html(news),
+        _build_sectors_html(news, config),
+        _build_opinion_smart_html(youtube, tweets, news, smart_money_news),
+    ])
+    telegraph_url = None
+    if state is not None:
+        token = state.get("telegraph_token")
+        if not token:
+            token = telegraph_create_account()
+            if token:
+                state["telegraph_token"] = token
+        if token:
+            title = f"PMVC Daily — {today.strftime('%a %b %d, %Y')} — Full digest"
+            telegraph_url = telegraph_publish(token, title, telegraph_html)
+
+    # Msg #1: compact
+    msg1_lines = [
+        f"📡 <b>PMVC Daily — {_h(today.strftime('%a %b %d'))}</b>",
+        f"<i>{len(news)} news · {len(tweets)} tweets · {len(youtube)} YT videos</i>",
+        "",
+    ]
+    msg1_lines += _build_section_news(news)            # Top 7 ranked
+    msg1_lines += _build_section_market(market_activity, compact=False)  # full NASDAQ table
+    msg1 = "\n".join(msg1_lines).rstrip()
+
+    # Msg #2: Telegraph link as standalone preview card
+    if telegraph_url:
+        msg2 = (
+            f'📊 <b>Full digest →</b> <a href="{_h(telegraph_url)}">'
+            f'Top 20 news · sector counts · opinion leaders · smart money</a>'
+        )
+    else:
+        # Telegraph failed — fall back to inline mini-section in same message
+        msg2 = "\n".join(
+            _build_section_sectors(news, config)
+            + _build_section_opinion(youtube, tweets)
+            + _build_section_smart_money(news, tweets)
+        ).rstrip() or "(Telegraph unavailable; no extras)"
+
+    return msg1, msg2
 
 
 def build_telegram_digest(today, edgar, news, tweets, youtube, market_activity, config, state=None, smart_money_news=None):
