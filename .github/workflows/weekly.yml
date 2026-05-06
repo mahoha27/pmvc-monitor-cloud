@@ -2,9 +2,31 @@ name: PMVC Weekly Digest
 
 on:
   schedule:
-    # 17:00 UTC Sunday = 19:00 Sunday Europe/Kiev (UTC+2 круглый год)
-    - cron: "0 17 * * 0"
+    # Saturated cron — same reliability strategy as daily.yml.
+    # GitHub Actions free-tier scheduled workflows can lag/skip; high-frequency
+    # cron + idempotency (state.last_weekly_sent_date) ensures exactly one send/Sunday.
+    # */10 16-19 * * 0 = every 10 min 16:00–19:50 UTC Sundays = 19:00–22:50 Kyiv (EEST)
+    - cron: "*/10 16-19 * * 0"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "DRY_RUN: collect data, build digest, but DO NOT send"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      force_resend:
+        description: "FORCE_RESEND: bypass idempotency check"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
+      test_to_owner:
+        description: "TEST: send to OWNER's DM instead of IPO-NEWS"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
 
 permissions:
   contents: write
@@ -37,6 +59,9 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           IPO_NEWS_CHAT_ID: ${{ secrets.IPO_NEWS_CHAT_ID }}
           TZ: Europe/Kiev
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '0' }}
+          FORCE_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend == 'true' && '1' || '0' }}
+          TEST_RECIPIENT_CHAT_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.test_to_owner == 'true' && secrets.OWNER_TG_ID || '' }}
         run: python monitor.py weekly
 
       - name: Commit updated state
@@ -46,7 +71,8 @@ jobs:
           if [[ -n "$(git status --porcelain state.json 2>/dev/null)" ]]; then
             git add state.json
             git commit -m "state: weekly run $(date -u +%Y-%m-%d_%H:%M)"
-            git push
+            git pull --rebase --autostash origin main || true
+            git push || (sleep 5 && git pull --rebase origin main && git push)
           else
             echo "No state changes"
           fi

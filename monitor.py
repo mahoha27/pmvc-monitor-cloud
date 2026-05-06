@@ -856,6 +856,86 @@ def telegraph_publish(access_token, title, html_text):
 
 # ---------- Market activity aggregation ----------
 _company_listed_cache = {}
+_submissions_cache = {}  # CIK → full submissions.json data (cached per run)
+
+
+def _fetch_submissions(cik):
+    """Fetch + cache SEC submissions.json for a company. Returns dict or None."""
+    cik_padded = str(cik).zfill(10)
+    if cik_padded in _submissions_cache:
+        return _submissions_cache[cik_padded]
+    try:
+        url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
+        data = json.loads(http_get(url))
+        _submissions_cache[cik_padded] = data
+        return data
+    except Exception as e:
+        print(f"  submissions fetch failed CIK {cik_padded}: {e}", file=sys.stderr)
+        _submissions_cache[cik_padded] = None
+        return None
+
+
+def is_first_time_us_ipo(cik, current_filing_date):
+    """USER POLICY (2026-05-06): 'first-time IPO' check.
+
+    Definition: the company's CURRENT filing (424B4 / 8-A12B / S-1 / F-1) is the
+    EARLIEST 424* prospectus filing in their SEC history. Any prior 424-series
+    (B3/B4/B5/B7) means they already had an IPO (424B3/B5 are post-IPO shelf
+    supplements; 424B4 is final IPO prospectus). If any prior 424* exists →
+    this is a follow-on, not first-time IPO.
+
+    Catches:
+      - GMTL Guardian Metal — uplist from AIM, no prior 424* → first-time ✓
+      - FEAM 5E Advanced — public since 2022 with 12 prior 424B3/B5 supplements
+        → drops correctly as follow-on ✓
+      - APEX Global / EUPEC / CCIS — pre-IPO, no prior 424* → first-time ✓
+
+    Returns:
+        True  — current filing is the earliest 424* (real first-time IPO)
+        False — company has prior 424* filing (this is follow-on, drop)
+        None  — fetch failed (caller treats as keep-with-caution)
+    """
+    sub = _fetch_submissions(cik)
+    if sub is None:
+        return None
+    recent = sub.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    dates = recent.get("filingDate", [])
+    # ALL 424-series prospectus filings (424B1/B3/B4/B5/B7/B8 etc.) — any prior
+    # one means company already has been public.
+    all_424_dates = [dates[i] for i, f in enumerate(forms) if f.startswith("424")]
+    # Also check older filings via "files" pagination (older >1000 entries)
+    for older in sub.get("filings", {}).get("files", []) or []:
+        try:
+            older_url = f"https://data.sec.gov/submissions/{older.get('name')}"
+            older_data = json.loads(http_get(older_url))
+            of = older_data.get("form", [])
+            od = older_data.get("filingDate", [])
+            all_424_dates.extend(od[i] for i, f in enumerate(of) if f.startswith("424"))
+        except Exception:
+            pass
+    if not all_424_dates:
+        # Company has no 424* at all — could be DRS-only / pending registration,
+        # or new pipeline filing. For 8-A12B / S-1 / F-1 in our buckets this means
+        # "first-time" (no IPO yet). Default True.
+        return True
+    # First-time IFF current filing's date <= earliest 424* in history
+    return current_filing_date <= min(all_424_dates)
+
+
+def is_spac(sic, company_name=""):
+    """Detect SPAC (Special Purpose Acquisition Company / blank-check entity).
+
+    Primary signal: SIC code 6770 = Blank Checks (the standard SPAC classification).
+    Fallback signal: company name contains 'Acquisition Corp' or 'Capital Corp' or
+    'Merger Corp' — handles cases where SIC is misclassified.
+    """
+    if str(sic) == "6770":
+        return True
+    name_lower = (company_name or "").lower()
+    spac_patterns = ("acquisition corp", "merger corp", "blank check")
+    return any(p in name_lower for p in spac_patterns)
+
 
 def is_company_publicly_listed(cik):
     """Returns True if company is already trading on a US exchange.
@@ -953,33 +1033,49 @@ def aggregate_market_activity(edgar_week, config, since_date=None):
             })
             continue
 
-        # PRICED
+        # PRICED — 424B4 in window. USER POLICY 2026-05-06 (Definition C):
+        # only count if this is the company's FIRST 424B4 ever (initial IPO, not follow-on).
         if PRICED_FORMS & forms_filed:
             price_filing = max((f for f in filings if f["form"] in PRICED_FORMS), key=lambda x: x["date"])
+            first_time = is_first_time_us_ipo(cik, price_filing["date"])
+            if first_time is False:  # explicitly False; None (fetch fail) keeps to avoid drops
+                continue
+            company_name = latest.get("company") or (latest["names"][0] if latest["names"] else "")
             priced.append({
                 **latest,
                 "form": price_filing["form"],
                 "price_date": price_filing["date"],
+                "is_spac": is_spac(latest.get("sic", ""), company_name),
             })
             continue
 
-        # IMMINENT — 8-A12B but not yet priced
+        # IMMINENT — 8-A12B but not yet priced. Definition C: drop if company has prior 424B4.
         if PRELISTING_FORMS & forms_filed:
             pre_filing = next(f for f in filings if f["form"] in PRELISTING_FORMS)
+            first_time = is_first_time_us_ipo(cik, pre_filing["date"])
+            if first_time is False:
+                continue
+            company_name = latest.get("company") or (latest["names"][0] if latest["names"] else "")
             imminent.append({
                 **latest,
                 "form": "8-A12B",
                 "pre_date": pre_filing["date"],
+                "is_spac": is_spac(latest.get("sic", ""), company_name),
             })
             continue
 
-        # PIPELINE — S-1 / F-1 (initial filings)
+        # PIPELINE — S-1 / F-1 (initial filings). Definition C: drop if company has prior 424B4.
         if PIPELINE_FORMS & forms_filed:
             init_filing = min((f for f in filings if f["form"] in PIPELINE_FORMS), key=lambda x: x["date"])
+            first_time = is_first_time_us_ipo(cik, init_filing["date"])
+            if first_time is False:
+                continue
+            company_name = latest.get("company") or (latest["names"][0] if latest["names"] else "")
             pipeline.append({
                 **latest,
                 "form": init_filing["form"],
                 "first_filed": init_filing["date"],
+                "is_spac": is_spac(latest.get("sic", ""), company_name),
             })
 
     return {
@@ -1205,7 +1301,15 @@ def _build_section_news(news):
     return L
 
 
-def _build_section_market(market_activity, compact=False):
+def _build_section_market(market_activity, compact=False, include_withdrawn=True):
+    """Build NASDAQ/NYSE Activity section.
+
+    USER POLICY 2026-05-06:
+    - Daily digest: include_withdrawn=False (withdrawn moved to weekly only)
+    - Weekly digest: include_withdrawn=True with full list
+
+    SPAC marker (🪙) added when entry has is_spac=True (SIC 6770 or name match).
+    """
     L = []
     priced = market_activity["priced"]
     imminent = market_activity["imminent"]
@@ -1222,25 +1326,34 @@ def _build_section_market(market_activity, compact=False):
         if mc.get("uplist"):  parts.append(f"🔄 {mc['uplist']} uplist")
         if parts:
             model_breakdown = f" ({' · '.join(parts)})"
-    L.append(f"💵 Priced: {len(priced)}{model_breakdown} · ⏰ Imminent: {len(imminent)} · 📋 Pipeline: {len(pipeline)} · ❌ Withdrawn: {len(withdrawn)}")
+    pulse = f"💵 Priced: {len(priced)}{model_breakdown} · ⏰ Imminent: {len(imminent)} · 📋 Pipeline: {len(pipeline)}"
+    if include_withdrawn:
+        pulse += f" · ❌ Withdrawn: {len(withdrawn)}"
+    L.append(pulse)
     if market_activity.get("unusual_flag"):
         L.append(f"<b>{_h(market_activity['unusual_flag'])}</b>")
     L.append("")
-    L.append("<i>Legend: 💵 classic IPO (raised cash) · 🆓 direct listing (no cash to company) · 🔄 uplist · 🎯 matches our sectors</i>")
+    L.append("<i>Legend: 💵 classic · 🆓 direct listing · 🔄 uplist · 🪙 SPAC · 🎯 our sectors</i>")
     L.append("")
 
     cap = 6 if compact else 10
+
+    def _markers(f):
+        """Build leading emoji markers for a filing entry."""
+        emoji = listing_model_emoji(f.get("listing_model", "classic"))
+        sectors = ", ".join(f["matches"]["sectors"])
+        niche = "🎯 " if sectors else ""
+        spac = "🪙 " if f.get("is_spac") else ""
+        return emoji, niche, spac, sectors
 
     if priced:
         L.append(f"💵 <b>Priced this week ({len(priced)}):</b>")
         for f in priced[:cap]:
             t = f.get("ticker") or "—"
             c = truncate(f.get("company") or "?", 45)
-            sectors = ", ".join(f["matches"]["sectors"])
-            mark = "🎯 " if sectors else ""
+            emoji, niche, spac, sectors = _markers(f)
             sec_str = f" · <i>{_h(sectors)}</i>" if sectors else ""
-            emoji = listing_model_emoji(f.get("listing_model", "classic"))
-            L.append(f"• {emoji} {mark}<b>{_h(t)}</b> · {_h(c)}{sec_str}")
+            L.append(f"• {emoji} {spac}{niche}<b>{_h(t)}</b> · {_h(c)}{sec_str}")
         L.append("")
 
     if imminent:
@@ -1249,10 +1362,9 @@ def _build_section_market(market_activity, compact=False):
         for f in imminent[:cap]:
             t = f.get("ticker") or "—"
             c = truncate(f.get("company") or "?", 45)
-            sectors = ", ".join(f["matches"]["sectors"])
-            mark = "🎯 " if sectors else ""
+            _, niche, spac, sectors = _markers(f)
             sec_str = f" · <i>{_h(sectors)}</i>" if sectors else ""
-            L.append(f"• {mark}<b>{_h(t)}</b> · {_h(c)}{sec_str}")
+            L.append(f"• {spac}{niche}<b>{_h(t)}</b> · {_h(c)}{sec_str}")
         L.append("")
 
     if pipeline:
@@ -1260,19 +1372,18 @@ def _build_section_market(market_activity, compact=False):
         for f in pipeline[:cap]:
             t = f.get("ticker") or "—"
             c = truncate(f.get("company") or "?", 45)
-            sectors = ", ".join(f["matches"]["sectors"])
-            mark = "🎯 " if sectors else ""
+            emoji, niche, spac, sectors = _markers(f)
             sec_str = f" · <i>{_h(sectors)}</i>" if sectors else ""
-            emoji = listing_model_emoji(f.get("listing_model", "classic"))
-            L.append(f"• {emoji} {mark}{_h(f['form'])} · <b>{_h(t)}</b> · {_h(c)}{sec_str}")
+            L.append(f"• {emoji} {spac}{niche}{_h(f['form'])} · <b>{_h(t)}</b> · {_h(c)}{sec_str}")
         L.append("")
 
-    if withdrawn:
+    if include_withdrawn and withdrawn:
         L.append(f"❌ <b>Withdrawn / pulled IPOs ({len(withdrawn)}):</b>")
         for f in withdrawn[:cap]:
             t = f.get("ticker") or "—"
             c = truncate(f.get("company") or "?", 50)
-            L.append(f"• <b>{_h(t)}</b> · {_h(c)}")
+            spac_mark = "🪙 " if f.get("is_spac") else ""
+            L.append(f"• {spac_mark}<b>{_h(t)}</b> · {_h(c)}")
         L.append("")
     return L
 
@@ -1471,7 +1582,9 @@ def build_telegram_digest_split(today, edgar, news, tweets, youtube, market_acti
         "",
     ]
     msg1_lines += _build_section_news(news)            # Top 7 ranked
-    msg1_lines += _build_section_market(market_activity, compact=False)  # full NASDAQ table
+    # USER POLICY 2026-05-06: daily digest does NOT show Withdrawn section
+    # (only weekly shows withdrawn count + list per Q5 decision).
+    msg1_lines += _build_section_market(market_activity, compact=False, include_withdrawn=False)
     msg1 = "\n".join(msg1_lines).rstrip()
 
     # Msg #2: Telegraph link as standalone preview card
@@ -1676,93 +1789,275 @@ def build_telegram_digest(today, edgar, news, tweets, youtube, market_activity, 
 
 
 # ---------- Weekly synthesis ----------
-def run_weekly():
+def _filter_niche(items):
+    """Keep only items that match at least one PMVC sector."""
+    return [it for it in items if it.get("matches", {}).get("sectors")]
+
+
+def build_weekly_digest_split(today, edgar_relevant, news_relevant, tweets_relevant,
+                                youtube_relevant, market_activity, config,
+                                state=None, smart_money_news=None,
+                                prev_snapshot=None):
+    """Returns (msg1, msg2) — Sunday weekly digest. Niche-only IPO activity.
+    Withdrawn shown WITH count + full list (per Q5).
+    Format = Option A split (compact TG + Telegraph link)."""
+    week_start = today - timedelta(days=7)
+    week_label = f"{week_start.strftime('%b %d')}–{today.strftime('%b %d, %Y')}"
+
+    # === Niche-only filtering for IPO buckets ===
+    niche_priced = _filter_niche(market_activity["priced"])
+    niche_imminent = _filter_niche(market_activity["imminent"])
+    niche_pipeline = _filter_niche(market_activity["pipeline"])
+    # Withdrawn: ALL companies (per user Q5 — full list, not just niche)
+    all_withdrawn = market_activity["withdrawn"]
+    # But also count niche subset for context
+    niche_withdrawn = _filter_niche(all_withdrawn)
+
+    niche_market = {
+        "priced": niche_priced,
+        "imminent": niche_imminent,
+        "pipeline": niche_pipeline,
+        "withdrawn": all_withdrawn,
+        "model_counts": market_activity.get("model_counts", {}),
+        "unusual_flag": market_activity.get("unusual_flag"),
+    }
+
+    # === Cross-week delta if previous snapshot available ===
+    delta_str = ""
+    if prev_snapshot:
+        d_priced = len(niche_priced) - prev_snapshot.get("niche_priced", 0)
+        d_pipeline = len(niche_pipeline) - prev_snapshot.get("niche_pipeline", 0)
+        d_withdrawn = len(all_withdrawn) - prev_snapshot.get("withdrawn", 0)
+        deltas = []
+        if d_priced: deltas.append(f"priced {d_priced:+d}")
+        if d_pipeline: deltas.append(f"pipeline {d_pipeline:+d}")
+        if d_withdrawn: deltas.append(f"withdrawn {d_withdrawn:+d}")
+        if deltas:
+            delta_str = f" · vs prev week: {' · '.join(deltas)}"
+
+    # === MSG #1: compact ===
+    niche_news = _filter_niche(news_relevant)
+    niche_news_sorted = sorted(niche_news, key=lambda x: -x.get("matches", {}).get("score", 0))
+
+    msg1_lines = [
+        f"📊 <b>PMVC Weekly — {_h(week_label)}</b>",
+        f"<i>{len(niche_priced)} new niche IPOs · {len(niche_pipeline)} in pipeline · "
+        f"{len(all_withdrawn)} withdrew ({len(niche_withdrawn)} in niche){_h(delta_str)}</i>",
+        "",
+    ]
+
+    # 1. Top niche news (5)
+    if niche_news_sorted:
+        msg1_lines.append("📰 <b>1. Top niche news of the week</b>")
+        for it in niche_news_sorted[:5]:
+            score = it.get("matches", {}).get("score", 0)
+            reasons = it.get("matches", {}).get("reasons", [])
+            why = " · ".join(reasons[:3]) if reasons else "—"
+            msg1_lines.append(f"• <a href=\"{_h(it['link'])}\">{_h(truncate(it['title'], 100))}</a>")
+            msg1_lines.append(f"  <i>{_h(it['source'])}</i> · score <b>{score}</b> · <i>{_h(why)}</i>")
+        msg1_lines.append("")
+
+    # 2. Niche IPO activity (re-uses _build_section_market with include_withdrawn=True for full list)
+    msg1_lines += _build_section_market(niche_market, compact=True, include_withdrawn=True)
+
+    msg1 = "\n".join(msg1_lines).rstrip()
+
+    # === Telegraph article (long-form) ===
+    telegraph_html = "\n".join([
+        f"<p><i>Week of {week_label}.</i></p>",
+        _build_top20_news_html(niche_news_sorted),
+        _build_sectors_html(news_relevant, config),
+        _build_opinion_smart_html(youtube_relevant, tweets_relevant, news_relevant, smart_money_news),
+    ])
+    telegraph_url = None
+    if state is not None:
+        token = state.get("telegraph_token")
+        if not token:
+            token = telegraph_create_account()
+            if token:
+                state["telegraph_token"] = token
+        if token:
+            title = f"PMVC Weekly — {week_label} — Full digest"
+            telegraph_url = telegraph_publish(token, title, telegraph_html)
+
+    # === MSG #2: Telegraph link card ===
+    if telegraph_url:
+        msg2 = (
+            f'📊 <b>Full weekly →</b> <a href="{_h(telegraph_url)}">'
+            f'Top niche news · pipeline · sector breakdown · opinion leaders · smart money</a>'
+        )
+    else:
+        msg2 = "(Telegraph unavailable — long-form not generated this week)"
+
+    return msg1, msg2
+
+
+def run_weekly(test_mode=False):
+    """Cloud-native weekly digest (Sunday 19:00 Kyiv).
+    Re-fetches EDGAR + RSS for past 7 days, filters to PMVC niches, sends 2-msg split.
+    Idempotent via state.last_weekly_sent_date — safe under saturated cron.
+    """
+    import os as _os
     config = load_config()
+    state = load_state()
     today = date.today()
     week_start = today - timedelta(days=7)
-    obsidian_cfg = config.get("obsidian") or {}
-    daily_dir_str = obsidian_cfg.get("daily_dir")
-    if not daily_dir_str:
-        print("[weekly] obsidian.daily_dir not configured (cloud mode) — weekly disabled in cloud, run locally", file=sys.stderr)
-        return
-    daily_dir = Path(daily_dir_str)
 
-    reports = []
-    for i in range(7):
-        d = today - timedelta(days=i)
-        p = daily_dir / f"{d.isoformat()}.md"
-        if p.exists():
-            reports.append((d, p.read_text()))
-
-    if not reports:
-        print("[weekly] no daily reports", file=sys.stderr)
+    # Idempotency — saturated cron fires multiple times per Sunday
+    if (not test_mode
+            and _os.environ.get("DRY_RUN") != "1"
+            and _os.environ.get("FORCE_RESEND") != "1"
+            and state.get("last_weekly_sent_date") == today.isoformat()):
+        print(f"[weekly] IDEMPOTENT SKIP — already sent today ({today.isoformat()})", flush=True)
         return
 
-    week_label = f"{week_start.strftime('%b %d')} — {today.strftime('%b %d, %Y')}"
-    sector_counts = Counter()
-    sm_mentions = Counter()
-    total_news = 0
-    total_edgar = 0
-    for _, content in reports:
-        m = re.search(r"\*\*Volume:\*\* (\d+) news · (\d+) EDGAR", content)
-        if m:
-            total_news += int(m.group(1))
-            total_edgar += int(m.group(2))
-        for match in re.finditer(r"### ([^(]+)\((\d+)\)", content):
-            sector_counts[match.group(1).strip()] += int(match.group(2))
-        for match in re.finditer(r"\*\*([A-Z][a-zA-Z .\-]{2,40})\*\*[ ·]", content):
-            name = match.group(1).strip()
-            # filter to only known smart-money names
-            for n in config["smart_money"]["investors"] + config["smart_money"]["operators"]:
-                if n.lower() in name.lower():
-                    sm_mentions[n] += 1
-                    break
+    print(f"[weekly] window: {week_start.isoformat()} → {today.isoformat()}", flush=True)
 
-    lines = [
-        "---", "tags: [pmvc, weekly-report]",
-        f"date: {today.isoformat()}",
-        f"week: {today.strftime('%Y-W%V')}",
-        "---", "",
-        f"# PMVC Weekly — {week_label}", "",
-        f"> Synthesis of {len(reports)} daily reports.", "",
-        "## 📊 Volume",
-        f"- News: **{total_news}**",
-        f"- EDGAR filings: **{total_edgar}**", "",
-        "## 🏷 Sectors (week sum)",
-    ]
-    for label, cnt in sector_counts.most_common(15):
-        lines.append(f"- {label}: **{cnt}**")
-    lines.append("")
-    if sm_mentions:
-        lines.append("## 💰 Smart Money mentions (week)")
-        for name, cnt in sm_mentions.most_common(15):
-            lines.append(f"- **{name}** — {cnt}")
-        lines.append("")
+    # 1. EDGAR week
+    print("[weekly] fetching EDGAR (last 7 days)...", flush=True)
+    edgar_week = fetch_edgar_filings(config["edgar_forms"], week_start.isoformat(), today.isoformat())
+    edgar_relevant = []
+    for f in edgar_week:
+        company, ticker = parse_company_ticker(f["names"])
+        f["company"] = company; f["ticker"] = ticker
+        text = f"{company or ''} {f['form']} SIC{f['sic']}"
+        f["matches"] = classify(text, config)
+        if is_relevant(f["matches"], edgar_record=f, config=config):
+            edgar_relevant.append(f)
+    print(f"[weekly] EDGAR: {len(edgar_week)} total, {len(edgar_relevant)} relevant", flush=True)
 
-    lines.append("## 📅 Daily reports")
-    for d, _ in sorted(reports, key=lambda x: x[0]):
-        lines.append(f"- [[Daily Reports/{d.isoformat()}]]")
+    # 2. RSS news (latest items per feed; classify and keep niche+relevant)
+    print("[weekly] fetching RSS news...", flush=True)
+    news_relevant = []
+    seen_link = set()
+    for src in config["rss_sources"]:
+        items = fetch_rss(src["url"])
+        for it in items:
+            uid = it["link"] or it["title"]
+            if uid in seen_link:
+                continue
+            seen_link.add(uid)
+            text = f"{it['title']} {strip_html(it['summary'])}"
+            it["matches"] = classify(text, config)
+            if is_relevant(it["matches"], config=config):
+                it["source"] = src["name"]
+                news_relevant.append(it)
+        time.sleep(0.3)
+    print(f"[weekly] news relevant: {len(news_relevant)}", flush=True)
 
-    weekly_dir_str = obsidian_cfg.get("weekly_dir")
-    if weekly_dir_str:
-        week_dir = Path(weekly_dir_str)
-        week_dir.mkdir(parents=True, exist_ok=True)
-        week_path = week_dir / f"{today.strftime('%Y-W%V')}.md"
-        week_path.write_text("\n".join(lines))
-        print(f"[weekly] saved: {week_path}", flush=True)
+    # 3. X tweets
+    print("[weekly] fetching X feeds...", flush=True)
+    tweets_relevant = []
+    seen_tw = set()
+    nitter = config.get("nitter_base", "https://nitter.net")
+    for ol in config["opinion_leaders"]["twitter_handles"]:
+        items = fetch_rss(f"{nitter}/{ol['handle']}/rss")
+        for it in items:
+            uid = it["link"] or it["title"]
+            if uid in seen_tw:
+                continue
+            seen_tw.add(uid)
+            text = f"{it['title']} {strip_html(it['summary'])}"
+            it["matches"] = classify(text, config)
+            it["author"] = ol["name"]; it["author_handle"] = ol["handle"]
+            if is_relevant(it["matches"], config=config):
+                tweets_relevant.append(it)
+        time.sleep(0.3)
+    print(f"[weekly] tweets: {len(tweets_relevant)}", flush=True)
 
-    digest = f"""📊 *PMVC Weekly — {week_label}*
+    # 3b. Google News smart-money mentions
+    smart_money_news = []
+    seen_smn = set()
+    for entry in config.get("google_news_smart_money", []):
+        items = fetch_rss(entry["url"])
+        for it in items[:10]:
+            uid = it["link"] or it["title"]
+            if uid in seen_smn:
+                continue
+            seen_smn.add(uid)
+            text = f"{it['title']} {strip_html(it['summary'])}"
+            it["matches"] = classify(text, config)
+            it["tracked_person"] = entry["name"]
+            if it["matches"]["sectors"] or it["matches"]["ipo_candidates"] or it["matches"].get("smart_money"):
+                smart_money_news.append(it)
+        time.sleep(0.25)
+    print(f"[weekly] smart-money news: {len(smart_money_news)}", flush=True)
 
-📰 {total_news} news · 🏛 {total_edgar} EDGAR
+    # 4. YouTube
+    youtube_relevant = []
+    seen_yt = set()
+    for ch in config["opinion_leaders"]["youtube_channels"]:
+        items = fetch_rss(f"https://www.youtube.com/feeds/videos.xml?channel_id={ch['channel_id']}")
+        for it in items:
+            uid = it["link"] or it["title"]
+            if uid in seen_yt:
+                continue
+            seen_yt.add(uid)
+            text = f"{it['title']} {strip_html(it['summary'])}"
+            it["matches"] = classify(text, config)
+            it["channel"] = ch["name"]
+            youtube_relevant.append(it)
+        time.sleep(0.3)
+    print(f"[weekly] youtube: {len(youtube_relevant)}", flush=True)
 
-🏷 *Top sectors:*
-""" + "\n".join(f"• {label}: {cnt}" for label, cnt in sector_counts.most_common(5))
+    # 5. Aggregate market activity for full week (no 1-day cutoff for weekly)
+    print("[weekly] aggregating market activity...", flush=True)
+    market_activity = aggregate_market_activity(edgar_week, config, since_date=week_start.isoformat())
 
-    if sm_mentions:
-        digest += "\n\n💰 *Smart money:*\n" + "\n".join(f"• {n}: {c}" for n, c in sm_mentions.most_common(5))
+    # 5b. Listing models for priced/imminent/pipeline
+    models = detect_listing_models(week_start.isoformat(), today.isoformat())
+    for bucket in ("priced", "imminent", "pipeline", "withdrawn"):
+        for f in market_activity[bucket]:
+            cik = f["ciks"][0] if f["ciks"] else ""
+            f["listing_model"] = models.get(cik, "classic")
+    model_counts = Counter(f["listing_model"] for f in market_activity["priced"])
+    market_activity["model_counts"] = dict(model_counts)
+    market_activity["unusual_flag"] = None
+    total_priced = sum(model_counts.values())
+    if total_priced >= 5 and model_counts.get("direct", 0) / total_priced > 0.4:
+        market_activity["unusual_flag"] = (
+            f"⚠️ Unusual: {model_counts.get('direct',0)} of {total_priced} priced this week "
+            f"are DIRECT LISTINGS (no cash to company)."
+        )
 
+    # 6. Build digest with prev-week snapshot for delta
+    prev_snap = state.get("last_weekly_snapshot")
+    msg1, msg2 = build_weekly_digest_split(
+        today, edgar_relevant, news_relevant, tweets_relevant, youtube_relevant,
+        market_activity, config, state=state, smart_money_news=smart_money_news,
+        prev_snapshot=prev_snap,
+    )
+
+    # 7. Send
     if config["telegram"]["enabled"]:
-        send_telegram(digest, config["telegram"].get("env_file"))
+        if _os.environ.get("DRY_RUN") == "1":
+            print(f"[weekly] DRY_RUN=1 — split built (msg1={len(msg1)}, msg2={len(msg2)}). First 300 of msg1:", flush=True)
+            print(msg1[:300], flush=True)
+            sent_ok = "skipped"
+        else:
+            env_file_cfg = config["telegram"].get("env_file")
+            test_chat = _os.environ.get("TEST_RECIPIENT_CHAT_ID")
+            if test_chat:
+                _os.environ["IPO_NEWS_CHAT_ID"] = test_chat
+                print(f"[weekly] TEST MODE — sending to chat {test_chat} (not production)", flush=True)
+            ok1 = send_telegram(msg1, env_file_cfg)
+            time.sleep(1)
+            ok2 = send_telegram(msg2, env_file_cfg)
+            sent_ok = bool(ok1 and ok2)
+        print(f"[weekly] TG sent split (len={len(msg1)+len(msg2)}, ok={sent_ok})", flush=True)
+        if sent_ok is True and not _os.environ.get("TEST_RECIPIENT_CHAT_ID"):
+            state["last_weekly_sent_date"] = today.isoformat()
+            state["last_weekly_sent_at"] = datetime.now().isoformat()
+            # Snapshot for next week's delta comparison
+            state["last_weekly_snapshot"] = {
+                "niche_priced": len(_filter_niche(market_activity["priced"])),
+                "niche_imminent": len(_filter_niche(market_activity["imminent"])),
+                "niche_pipeline": len(_filter_niche(market_activity["pipeline"])),
+                "withdrawn": len(market_activity["withdrawn"]),
+            }
+
+    save_state(state)
+    print("[weekly] done", flush=True)
 
 
 # ---------- Main ----------
