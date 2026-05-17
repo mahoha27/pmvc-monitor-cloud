@@ -8942,12 +8942,12 @@
   "last_run_date": "2026-05-17",
   "last_daily_sent_date": "2026-05-17",
   "last_daily_sent_at": "2026-05-17T11:12:42.704778",
-  "last_weekly_sent_date": "2026-05-10",
-  "last_weekly_sent_at": "2026-05-10T19:53:53.947408",
+  "last_weekly_sent_date": "2026-05-17",
+  "last_weekly_sent_at": "2026-05-17T19:56:20.767207",
   "last_weekly_snapshot": {
     "niche_priced": 0,
     "niche_imminent": 0,
-    "niche_pipeline": 1,
-    "withdrawn": 5
+    "niche_pipeline": 0,
+    "withdrawn": 4
   }
 }
