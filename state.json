@@ -10129,12 +10129,12 @@
   "last_run_date": "2026-05-24",
   "last_daily_sent_date": "2026-05-24",
   "last_daily_sent_at": "2026-05-24T11:19:32.317097",
-  "last_weekly_sent_date": "2026-05-17",
-  "last_weekly_sent_at": "2026-05-17T19:56:20.767207",
+  "last_weekly_sent_date": "2026-05-24",
+  "last_weekly_sent_at": "2026-05-24T19:58:52.459532",
   "last_weekly_snapshot": {
     "niche_priced": 0,
     "niche_imminent": 0,
     "niche_pipeline": 0,
-    "withdrawn": 4
+    "withdrawn": 6
   }
 }
