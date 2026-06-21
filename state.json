@@ -14474,12 +14474,12 @@
   "last_run_date": "2026-06-21",
   "last_daily_sent_date": "2026-06-21",
   "last_daily_sent_at": "2026-06-21T12:38:14.840458",
-  "last_weekly_sent_date": "2026-06-14",
-  "last_weekly_sent_at": "2026-06-14T20:19:28.411892",
+  "last_weekly_sent_date": "2026-06-21",
+  "last_weekly_sent_at": "2026-06-21T20:27:00.187774",
   "last_weekly_snapshot": {
     "niche_priced": 0,
     "niche_imminent": 0,
-    "niche_pipeline": 0,
-    "withdrawn": 2
+    "niche_pipeline": 1,
+    "withdrawn": 3
   }
 }
