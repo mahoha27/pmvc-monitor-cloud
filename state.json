@@ -16959,12 +16959,12 @@
   "last_run_date": "2026-07-12",
   "last_daily_sent_date": "2026-07-12",
   "last_daily_sent_at": "2026-07-12T11:03:38.897405",
-  "last_weekly_sent_date": "2026-07-05",
-  "last_weekly_sent_at": "2026-07-05T20:06:58.137724",
+  "last_weekly_sent_date": "2026-07-12",
+  "last_weekly_sent_at": "2026-07-12T19:57:02.265129",
   "last_weekly_snapshot": {
     "niche_priced": 0,
     "niche_imminent": 0,
-    "niche_pipeline": 0,
-    "withdrawn": 2
+    "niche_pipeline": 1,
+    "withdrawn": 7
   }
 }
