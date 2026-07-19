@@ -17607,12 +17607,12 @@
   "last_run_date": "2026-07-19",
   "last_daily_sent_date": "2026-07-19",
   "last_daily_sent_at": "2026-07-19T11:03:22.737255",
-  "last_weekly_sent_date": "2026-07-12",
-  "last_weekly_sent_at": "2026-07-12T19:57:02.265129",
+  "last_weekly_sent_date": "2026-07-19",
+  "last_weekly_sent_at": "2026-07-19T19:55:17.177987",
   "last_weekly_snapshot": {
-    "niche_priced": 0,
+    "niche_priced": 1,
     "niche_imminent": 0,
-    "niche_pipeline": 1,
-    "withdrawn": 7
+    "niche_pipeline": 0,
+    "withdrawn": 3
   }
 }
