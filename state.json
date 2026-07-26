@@ -18177,10 +18177,10 @@
   "last_run_date": "2026-07-26",
   "last_daily_sent_date": "2026-07-26",
   "last_daily_sent_at": "2026-07-26T11:10:34.865606",
-  "last_weekly_sent_date": "2026-07-19",
-  "last_weekly_sent_at": "2026-07-19T19:55:17.177987",
+  "last_weekly_sent_date": "2026-07-26",
+  "last_weekly_sent_at": "2026-07-26T19:56:19.464382",
   "last_weekly_snapshot": {
-    "niche_priced": 1,
+    "niche_priced": 0,
     "niche_imminent": 0,
     "niche_pipeline": 0,
     "withdrawn": 3
