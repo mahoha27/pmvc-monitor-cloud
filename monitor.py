@@ -7,7 +7,7 @@ Sources (all free):
 - 10 RSS news feeds (TechCrunch, SpaceNews, Defense News, etc.)
 - 7 X/Twitter feeds via nitter.net (Justus Parmar + 6 PMVC experts)
 - 9 YouTube podcast channels (All-In, Bg2, Acquired, Crux Investor, etc.)
-- ollama qwen2.5:7b for summaries
+- Claude API (cloud) or local ollama for one-line news summaries
 
 Output sections:
 1. Что произошло в новостях
@@ -332,9 +332,72 @@ def is_relevant(matches, edgar_record=None, config=None, min_score=3):
 
 
 # ---------- LLM ----------
-def llm_summarize(text, llm_config, prompt_prefix="Сделай ОЧЕНЬ краткое (1 предложение, до 25 слов) описание новости на русском. Только факт, без вводных."):
+SUMMARY_PROMPT = "Сделай ОЧЕНЬ краткое (1 предложение, до 25 слов) описание новости на русском. Только факт, без вводных."
+
+# Cached Claude client + circuit breaker: 3 consecutive API errors → stop trying,
+# так digest никогда не блокируется из-за сломанного ключа / сети (graceful no-op).
+_claude = {"client": None, "consecutive_failures": 0}
+
+
+def llm_available(llm_config):
+    """True если LLM шаг может работать в этом окружении. Логирует причину скипа."""
+    if not llm_config.get("enabled"):
+        return False
+    if llm_config.get("provider", "ollama") == "claude":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            print("[llm] provider=claude, но ANTHROPIC_API_KEY не задан (GitHub Secret) — summaries пропущены", flush=True)
+            return False
+        try:
+            import anthropic  # noqa: F401
+        except ImportError:
+            print("[llm] provider=claude, но пакет 'anthropic' не установлен (pip install anthropic) — summaries пропущены", flush=True)
+            return False
+    return True
+
+
+def llm_summarize(text, llm_config, prompt_prefix=SUMMARY_PROMPT):
     if not llm_config.get("enabled"):
         return None
+    if llm_config.get("provider", "ollama") == "claude":
+        return _claude_summarize(text, llm_config, prompt_prefix)
+    return _ollama_summarize(text, llm_config, prompt_prefix)
+
+
+def _claude_summarize(text, llm_config, prompt_prefix):
+    """One-line summary via Claude API (cloud mode — ollama недоступен в GitHub Actions)."""
+    if _claude["consecutive_failures"] >= 3:
+        return None
+    try:
+        import anthropic
+        if _claude["client"] is None:
+            _claude["client"] = anthropic.Anthropic(
+                timeout=float(llm_config.get("timeout_sec", 30)),
+                max_retries=1,
+            )
+        response = _claude["client"].beta.messages.create(
+            model=llm_config.get("model", "claude-opus-5"),
+            max_tokens=1000,
+            output_config={"effort": "low"},
+            # Server-side fallback: при policy-decline запрос дорабатывает fallback-модель
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            system=prompt_prefix,
+            messages=[{"role": "user", "content": f"Текст новости:\n{text[:1500]}"}],
+        )
+        _claude["consecutive_failures"] = 0
+        if response.stop_reason == "refusal":
+            return None
+        out = next((b.text for b in response.content if b.type == "text"), "")
+        out = out.strip().strip('"«»').strip()
+        return out or None
+    except Exception as e:
+        _claude["consecutive_failures"] += 1
+        print(f"[llm] claude error ({_claude['consecutive_failures']}/3): {e}", flush=True)
+        return None
+
+
+def _ollama_summarize(text, llm_config, prompt_prefix):
+    """One-line summary via local ollama (original local-mode backend)."""
     try:
         prompt = f"{prompt_prefix}\n\nТекст:\n{text[:1500]}\n\nКраткое описание:"
         result = subprocess.run(
@@ -637,13 +700,19 @@ def run_daily(test_mode=False):
         time.sleep(0.3)
     print(f"[daily] YouTube videos: {len(youtube_relevant)}", flush=True)
 
-    # 5. LLM summaries (top items) — gracefully skipped if LLM not configured (cloud mode)
-    if config.get("llm", {}).get("enabled"):
-        for it in news_relevant[:20]:
+    # 5. LLM summaries (top items) — gracefully skipped if LLM not configured / no API key
+    llm_cfg = config.get("llm", {})
+    if llm_available(llm_cfg):
+        # Summarize the RANKED top 20 — те же items, что показывает digest (top-7 + Telegraph top-20)
+        ranked = sorted(news_relevant, key=lambda x: -x.get("matches", {}).get("score", 0))
+        summarized = 0
+        for it in ranked[:20]:
             text = f"{it['title']}. {strip_html(it['summary'])}"
-            s = llm_summarize(text, config["llm"])
+            s = llm_summarize(text, llm_cfg)
             if s:
                 it["llm_summary"] = s
+                summarized += 1
+        print(f"[daily] LLM summaries ({llm_cfg.get('provider', 'ollama')}): {summarized}/{min(len(ranked), 20)}", flush=True)
 
     # 5b. Aggregate week-level IPO activity (priced/upcoming/pipeline/withdrawn)
     # Default since_date in aggregate = today-1 (only yesterday/today RWs)
@@ -1297,6 +1366,8 @@ def _build_section_news(news):
             why = " · ".join(reasons[:3]) if reasons else "?"
             L.append(f"• <a href=\"{_h(it['link'])}\">{_h(truncate(it['title'], 100))}</a>")
             L.append(f"  <i>{_h(it['source'])}</i> · score <b>{score}</b> · <i>{_h(why)}</i>")
+            if it.get("llm_summary"):
+                L.append(f"  💬 {_h(truncate(it['llm_summary'], 180))}")
         L.append("")
     return L
 
@@ -1466,9 +1537,12 @@ def _build_top20_news_html(news):
         score = it.get("matches", {}).get("score", 0)
         reasons = it.get("matches", {}).get("reasons", [])
         why = " · ".join(reasons[:3]) if reasons else "—"
+        summary_line = ""
+        if it.get("llm_summary"):
+            summary_line = f'<br>💬 {_h(truncate(it["llm_summary"], 200))}'
         L.append(
             f'<p>• <a href="{_h(it["link"])}">{_h(truncate(it["title"], 140))}</a><br>'
-            f'<i>{_h(it["source"])} · score <b>{score}</b> · {_h(why)}</i></p>'
+            f'<i>{_h(it["source"])} · score <b>{score}</b> · {_h(why)}</i>{summary_line}</p>'
         )
     return "\n".join(L)
 

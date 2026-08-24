@@ -1,1 +1,2 @@
 PyYAML>=6.0
+anthropic>=1.0

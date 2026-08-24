@@ -63,6 +63,8 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           IPO_NEWS_CHAT_ID: ${{ secrets.IPO_NEWS_CHAT_ID }}
+          # Claude API для one-line news summaries. Секрет не задан → шаг пропускается (digest полный).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TZ: Europe/Kiev
           # Scheduled runs: real send. Manual runs: default DRY_RUN=true (safe).
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' && '1' || '0' }}

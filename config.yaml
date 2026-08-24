@@ -341,8 +341,13 @@ obsidian:
   daily_dir: ""
   weekly_dir: ""
 llm:
-  # cloud: ollama недоступен → enabled=false → LLM шаг пропускается. HTML digest всё равно полный.
-  enabled: false
+  # cloud: summaries через Claude API — ключ берётся из ANTHROPIC_API_KEY (GitHub Secret).
+  # Нет ключа / нет пакета anthropic → LLM шаг пропускается (graceful no-op), digest всё равно полный.
+  # provider: claude (API, cloud) | ollama (локально; model тогда напр. qwen2.5:7b)
+  enabled: true
+  provider: claude
+  model: claude-opus-5
+  timeout_sec: 30
 nitter_base: https://nitter.net
 google_news_smart_money:
 - name: Elon Musk
