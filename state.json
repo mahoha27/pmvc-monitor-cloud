@@ -23752,12 +23752,12 @@
   "last_run_date": "2026-10-18",
   "last_daily_sent_date": "2026-10-18",
   "last_daily_sent_at": "2026-10-18T13:07:46.522780",
-  "last_weekly_sent_date": "2026-10-11",
-  "last_weekly_sent_at": "2026-10-11T22:54:34.937987",
+  "last_weekly_sent_date": "2026-10-18",
+  "last_weekly_sent_at": "2026-10-18T21:27:08.945253",
   "last_weekly_snapshot": {
     "niche_priced": 0,
     "niche_imminent": 0,
     "niche_pipeline": 0,
-    "withdrawn": 2
+    "withdrawn": 5
   }
 }
