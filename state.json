@@ -24609,12 +24609,12 @@
   "last_run_date": "2026-11-01",
   "last_daily_sent_date": "2026-11-01",
   "last_daily_sent_at": "2026-11-01T12:22:26.126138",
-  "last_weekly_sent_date": "2026-10-25",
-  "last_weekly_sent_at": "2026-10-25T18:42:38.081553",
+  "last_weekly_sent_date": "2026-11-01",
+  "last_weekly_sent_at": "2026-11-01T20:07:45.595120",
   "last_weekly_snapshot": {
     "niche_priced": 0,
     "niche_imminent": 0,
     "niche_pipeline": 0,
-    "withdrawn": 3
+    "withdrawn": 2
   }
 }
